@@ -73,8 +73,10 @@ def main():
 
         # 5. VERIFY
         print("🔄 Verifying fix...")
-        success, new_logs = run_build(f"make -C {test_dir}")
-
+        # FIX: Use the same GCC command for verification
+        build_cmd = f"gcc {test_dir / 'test.c'} -o {test_dir / 'test_app'} -Wall"
+        success, new_logs = run_build(build_cmd)
+        
         if success:
             print("🎉 SUCCESS! The build passed.")
             print(f"👉 You are currently on branch '{fix_branch}'.")
