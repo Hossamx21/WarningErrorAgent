@@ -41,9 +41,11 @@ def main():
     errors, warnings = extract_gcc_issues(logs)
     if not errors:
         print("❌ Build failed but no specific GCC errors found.")
+        # ADD THIS DEBUG BLOCK:
+        print("--- RAW BUILD LOGS ---")
+        print(logs)
+        print("----------------------")
         return
-
-    print(f"🔍 Found {len(errors)} errors and {len(warnings)} warnings.")
     
     # 4. ENTER SANDBOX
     original_branch = subprocess.check_output(["git", "branch", "--show-current"], text=True).strip()
