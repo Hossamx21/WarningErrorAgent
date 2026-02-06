@@ -28,11 +28,13 @@ def main():
     if not is_clean_workspace():
         print("🛑 STOP: You have uncommitted changes. Please commit or stash them first.")
         return
-
-    # 2. INITIAL BUILD (To get the errors)
-    print("🔨 Running initial build...")
-    success, logs = run_build(f"make -C {test_dir}")
     
+# 2. INITIAL BUILD (To get the errors)
+    print("🔨 Running initial build...")
+    # FIX: Run GCC directly since 'make' is missing on Windows
+    # We explicitly enable -Wall to ensure warnings appear for the test
+    build_cmd = f"gcc {test_dir / 'test.c'} -o {test_dir / 'test_app'} -Wall"
+    success, logs = run_build(build_cmd)
     if success:
         print("✅ Build passed! Nothing to fix.")
         return
