@@ -1,111 +1,88 @@
-from parsers.gcc import extract_gcc_issues
-from agent.analyzer import analyze_errors
-from agent.confidence import is_confident
-from agent.fixer import apply_fixes
-import json
 import subprocess
+import json
+import os
 from pathlib import Path
-from agent.memory import (
-    load_memory,
-    save_memory,
-    create_signature,
-    current_time
-)
 
-root_dir = Path(__file__).resolve().parent
-log_path = root_dir / "logs" / "build.log"
-testcode_dir = root_dir / "testcode"
-fix_root = root_dir
+# Import your modules
+from agent.analyzer import analyze_errors
+from agent.fixer import apply_fixes
+from parsers.gcc import extract_gcc_issues
+from agent.git_utils import is_clean_workspace, create_fix_branch, revert_to_main, commit_change
 
-if testcode_dir.exists():
-    fix_root = testcode_dir
-    # build_cmd = "make -C testcode"
-    # result = subprocess.run(
-    #     build_cmd,
-    #     shell=True,
-    #     capture_output=True,
-    #     text=True,
-    #     encoding="utf-8",
-    #     errors="ignore",
-    # )
-    # log_path.parent.mkdir(parents=True, exist_ok=True)
-    # log_path.write_text(
-    #     (result.stdout or "") + (result.stderr or ""),
-    #     encoding="utf-8",
-    #     errors="ignore",
-    # )
-    pass
+def run_build(cmd="make"):
+    """Runs the build and returns (success, logs)."""
+    result = subprocess.run(
+        cmd, 
+        shell=True, 
+        capture_output=True, 
+        text=True,
+        errors="ignore" # Ignore encoding errors
+    )
+    return result.returncode == 0, result.stderr + result.stdout
 
-with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
-    log_text = f.read()
+def main():
+    root_dir = Path(".").resolve()
+    test_dir = root_dir / "testcode"
+    
+    # 1. SAFETY CHECK
+    if not is_clean_workspace():
+        print("🛑 STOP: You have uncommitted changes. Please commit or stash them first.")
+        return
 
-errors, warnings = extract_gcc_issues(log_text)
+    # 2. INITIAL BUILD (To get the errors)
+    print("🔨 Running initial build...")
+    success, logs = run_build(f"make -C {test_dir}")
+    
+    if success:
+        print("✅ Build passed! Nothing to fix.")
+        return
 
-if not errors and not warnings:
-    print("✅ No build issues detected")
-    exit(0)
+    # 3. PARSE & ANALYZE
+    errors, warnings = extract_gcc_issues(logs)
+    if not errors:
+        print("❌ Build failed but no specific GCC errors found.")
+        return
 
-#result = analyze_errors(errors, warnings)
-memory = load_memory()
-signature = create_signature(errors + warnings)
+    print(f"🔍 Found {len(errors)} errors and {len(warnings)} warnings.")
+    
+    # 4. ENTER SANDBOX
+    original_branch = subprocess.check_output(["git", "branch", "--show-current"], text=True).strip()
+    fix_branch = create_fix_branch()
+    print(f"🛡️  Switched to safe branch: {fix_branch}")
 
-result = None
+    try:
+        # Ask AI for solution
+        analysis = analyze_errors(errors, warnings, root_dir=str(test_dir))
+        
+        if not analysis.get("fixes"):
+            print("🤷 AI could not generate any fixes.")
+            revert_to_main(fix_branch, original_branch)
+            return
 
-# 1️⃣ Try memory first
-for entry in memory:
-    if entry["error_signature"] == signature:
-        print("♻️ Known error found in memory")
-        result = entry
-        break
+        print(f"🤖 AI Suggests {len(analysis['fixes'])} fixes...")
 
-# 2️⃣ If not found, ask AI and remember
-if result is None:
-    print("🧠 New error, asking AI...")
-    result = analyze_errors(errors, warnings)
-    result["error_signature"] = signature
-    result["timestamp"] = current_time()
-    memory.append(result)
-    save_memory(memory)
+        # Apply fixes
+        apply_fixes(analysis["fixes"], root_dir=str(test_dir))
+        
+        # Commit the attempt (so we can revert cleanly if needed)
+        commit_change(".", message="AI: Attempted compile fix")
 
+        # 5. VERIFY
+        print("🔄 Verifying fix...")
+        success, new_logs = run_build(f"make -C {test_dir}")
 
-# Retry strategy if confidence is low
-if not is_confident(result):
-    print("⚠️ Low confidence result, retrying with reduced context")
-    result = analyze_errors(errors[:50], warnings[:50])
+        if success:
+            print("🎉 SUCCESS! The build passed.")
+            print(f"👉 You are currently on branch '{fix_branch}'.")
+            print(f"👉 To keep this, run: git checkout {original_branch} && git merge {fix_branch}")
+        else:
+            print("💥 Fix failed to cure the build.")
+            print("Build output after fix:\n", new_logs[:500])
+            revert_to_main(fix_branch, original_branch)
 
-if result.get("fixes"):
-    print("🔍 Generated Fixes:")
-    print(json.dumps(result["fixes"], indent=2))
+    except Exception as e:
+        print(f"⚠️ Critical Error: {e}")
+        revert_to_main(fix_branch, original_branch)
 
-# 3️⃣ Apply fixes if confident
-if result.get("fixes") and result.get("confidence", 0) >= 0.7:
-    print(f"🔧 Confidence HIGH ({result['confidence']}), applying {len(result['fixes'])} fixes...")
-    apply_fixes(result["fixes"], root_dir=str(fix_root))
-
-# Save outputs
-with open("output/report.json", "w") as f:
-    json.dump(result, f, indent=2)
-
-with open("output/report.md", "w") as f:
-    f.write(f"""
-# Build Failure Report
-
-**Root Cause**
-{result['root_cause']}
-
-**Category**
-{result['error_category']}
-
-**Blocking**
-{result['blocking']}
-
-**Suggested Fix**
-{result['suggested_fix']}
-
-**Confidence**
-{result['confidence']}
-
-**Warnings (first 50)**
-""" + "\n".join(warnings[:50]))
-
-print("📄 Report generated in output/")
+if __name__ == "__main__":
+    main()
