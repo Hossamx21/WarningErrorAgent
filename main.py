@@ -21,7 +21,18 @@ def run_build(cmd="make"):
     return result.returncode == 0, result.stderr + result.stdout
 
 def main():
-    root_dir = Path(".").resolve()
+    root_dir = Path(__file__).resolve().parent
+    # --- ADD THIS BLOCK ---
+# We point to the specific compiler executable
+    gcc_path = r"D:\eaton-ut\GCC-140200-64\GCC-140200-64\bin\gcc.exe"
+
+# CRITICAL FIX: We tell Windows where to find the DLLs (libgcc_s_seh-1.dll, etc.)
+# by adding the compiler's 'bin' folder to the environment PATH for this script.
+    gcc_bin_folder = str(Path(gcc_path).parent)
+    os.environ["PATH"] += os.pathsep + gcc_bin_folder
+# ----------------------
+
+    log_path = root_dir / "logs" / "build.log"
     test_dir = root_dir / "testcode"
     
     # 1. SAFETY CHECK
@@ -32,10 +43,7 @@ def main():
 # 2. INITIAL BUILD (To get the errors)
     print("🔨 Running initial build...")
     
-    # YOUR EXACT PATH (Using r"" for raw string to handle backslashes safe)
-    gcc_path = r"D:\eaton-ut\GCC-140200-64\GCC-140200-64\bin\gcc.exe"
-    
-    # Build command using the explicit path
+    # Use the variable we defined at the top
     build_cmd = f'"{gcc_path}" "{test_dir / "test.c"}" -o "{test_dir / "test_app"}" -Wall'
     
     success, logs = run_build(build_cmd)
