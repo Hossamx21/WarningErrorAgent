@@ -31,10 +31,15 @@ def main():
     
 # 2. INITIAL BUILD (To get the errors)
     print("🔨 Running initial build...")
-    # FIX: Run GCC directly since 'make' is missing on Windows
-    # We explicitly enable -Wall to ensure warnings appear for the test
-    build_cmd = f"gcc {test_dir / 'test.c'} -o {test_dir / 'test_app'} -Wall"
+    
+    # YOUR EXACT PATH (Using r"" for raw string to handle backslashes safe)
+    gcc_path = r"D:\eaton-ut\GCC-140200-64\GCC-140200-64\bin\gcc.exe"
+    
+    # Build command using the explicit path
+    build_cmd = f'"{gcc_path}" "{test_dir / "test.c"}" -o "{test_dir / "test_app"}" -Wall'
+    
     success, logs = run_build(build_cmd)
+    
     if success:
         print("✅ Build passed! Nothing to fix.")
         return
@@ -73,10 +78,9 @@ def main():
 
         # 5. VERIFY
         print("🔄 Verifying fix...")
-        # FIX: Use the same GCC command for verification
-        build_cmd = f"gcc {test_dir / 'test.c'} -o {test_dir / 'test_app'} -Wall"
-        success, new_logs = run_build(build_cmd)
         
+        # Re-use the same command
+        success, new_logs = run_build(build_cmd)
         if success:
             print("🎉 SUCCESS! The build passed.")
             print(f"👉 You are currently on branch '{fix_branch}'.")
