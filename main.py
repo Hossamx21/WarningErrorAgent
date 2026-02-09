@@ -86,21 +86,39 @@ def main():
 
         # 5. VERIFY
         print("🔄 Verifying fix...")
-        
-        # Re-use the same command
         success, new_logs = run_build(build_cmd)
+
         if success:
             print("🎉 SUCCESS! The build passed.")
-            print(f"👉 You are currently on branch '{fix_branch}'.")
-            print(f"👉 To keep this, run: git checkout {original_branch} && git merge {fix_branch}")
-        else:
-            print("💥 Fix failed to cure the build.")
-            print("Build output after fix:\n", new_logs[:500])
-            revert_to_main(fix_branch, original_branch)
+            # Delete the branch since we are done (or merge it)
+            # For now, let's keep it so you can see the victory
+            print(f"✅ Code is fixed on branch: {branch_name}")
+            return
 
-    except Exception as e:
-        print(f"⚠️ Critical Error: {e}")
-        revert_to_main(fix_branch, original_branch)
+        else:
+            # CHECK FOR PROGRESS
+            # If the original error is GONE, but new errors appeared, we made progress!
+            print("💥 Fix failed to cure the build.")
+            print("Build output after fix:")
+            
+            # Print only the first few lines of the new log
+            print("\n".join(new_logs.splitlines()[:10]))
+
+            # --- NEW LOGIC: DETECT PROGRESS ---
+            # If the old error is gone, keep the change!
+            # We check if the specific error line we tried to fix is still in the logs
+            old_error_signature = error_lines[0].split("error:")[1].strip() if len(error_lines) > 0 else ""
+            
+            if old_error_signature and old_error_signature not in new_logs:
+                 print(f"\n🚀 PARTIAL SUCCESS! The error '{old_error_signature[:30]}...' is gone.")
+                 print(f"⚠️ New errors appeared, but we will KEEP the current fix on branch {branch_name}.")
+                 print("You can run the agent again to fix the new errors.")
+                 return
+            # ----------------------------------
+
+            print("Start reverting to main...")
+            revert_changes(branch_name)
+            print(f"Reverted. Deleted branch {branch_name}.")
 
 if __name__ == "__main__":
     main()
