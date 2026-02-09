@@ -1,124 +1,144 @@
-import subprocess
-import json
 import os
+import subprocess
+import sys
 from pathlib import Path
-
-# Import your modules
+from agent.gcc import parse_gcc_output
+from agent.git_utils import is_clean_workspace, create_branch, revert_changes, commit_changes
 from agent.analyzer import analyze_errors
 from agent.fixer import apply_fixes
-from parsers.gcc import extract_gcc_issues
-from agent.git_utils import is_clean_workspace, create_fix_branch, revert_to_main, commit_change
 
-def run_build(cmd="make"):
-    """Runs the build and returns (success, logs)."""
-    result = subprocess.run(
-        cmd, 
-        shell=True, 
-        capture_output=True, 
-        text=True,
-        errors="ignore" # Ignore encoding errors
-    )
-    return result.returncode == 0, result.stderr + result.stdout
+# --- CONFIGURATION ---
+root_dir = Path(__file__).resolve().parent
+testcode_dir = root_dir / "testcode"
+log_dir = root_dir / "logs"
+
+# Ensure log directory exists
+log_dir.mkdir(exist_ok=True)
+
+# GCC CONFIGURATION
+# Update this path if you move GCC
+gcc_path = r"D:\eaton-ut\GCC-140200-64\GCC-140200-64\bin\gcc.exe"
+
+# Add GCC bin folder to PATH so it can find DLLs
+if os.path.exists(gcc_path):
+    gcc_bin = str(Path(gcc_path).parent)
+    os.environ["PATH"] += os.pathsep + gcc_bin
+
+def run_build(cmd: str) -> tuple[bool, str]:
+    """Runs the build command and returns (success, logs)."""
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            shell=True
+        )
+        # GCC writes errors to stderr, but we want everything
+        logs = result.stdout + "\n" + result.stderr
+        return (result.returncode == 0, logs)
+    except Exception as e:
+        return (False, str(e))
 
 def main():
-    root_dir = Path(__file__).resolve().parent
-    # --- ADD THIS BLOCK ---
-# We point to the specific compiler executable
-    gcc_path = r"D:\eaton-ut\GCC-140200-64\GCC-140200-64\bin\gcc.exe"
+    print("🚀 Agent Starting...")
 
-# CRITICAL FIX: We tell Windows where to find the DLLs (libgcc_s_seh-1.dll, etc.)
-# by adding the compiler's 'bin' folder to the environment PATH for this script.
-    gcc_bin_folder = str(Path(gcc_path).parent)
-    os.environ["PATH"] += os.pathsep + gcc_bin_folder
-# ----------------------
-
-    log_path = root_dir / "logs" / "build.log"
-    test_dir = root_dir / "testcode"
-    
-    # 1. SAFETY CHECK
+    # 1. GIT SAFETY CHECK
     if not is_clean_workspace():
-        print("🛑 STOP: You have uncommitted changes. Please commit or stash them first.")
+        print("❌ Error: Workspace is not clean. Commit or stash changes first.")
         return
-    
-# 2. INITIAL BUILD (To get the errors)
+
+    # 2. INITIAL BUILD
     print("🔨 Running initial build...")
     
-    # Use the variable we defined at the top
-    build_cmd = f'"{gcc_path}" "{test_dir / "test.c"}" -o "{test_dir / "test_app"}" -Wall'
+    # We use raw strings for paths to avoid issues
+    source_file = testcode_dir / "test.c"
+    output_file = testcode_dir / "test_app"
+    
+    # The build command
+    build_cmd = f'"{gcc_path}" "{source_file}" -o "{output_file}" -Wall'
     
     success, logs = run_build(build_cmd)
     
+    # Save logs
+    with open(log_dir / "build.log", "w", encoding="utf-8") as f:
+        f.write(logs)
+
     if success:
         print("✅ Build passed! Nothing to fix.")
         return
 
-    # 3. PARSE & ANALYZE
-    errors, warnings = extract_gcc_issues(logs)
-    if not errors:
-        print("❌ Build failed but no specific GCC errors found.")
-        # ADD THIS DEBUG BLOCK:
+    # 3. PARSE ERRORS
+    errors, warnings = parse_gcc_output(logs)
+    if not errors and not warnings:
+        print("❓ Build failed but no specific GCC errors found.")
         print("--- RAW BUILD LOGS ---")
         print(logs)
-        print("----------------------")
         return
-    
-    # 4. ENTER SANDBOX
-    original_branch = subprocess.check_output(["git", "branch", "--show-current"], text=True).strip()
-    fix_branch = create_fix_branch()
-    print(f"🛡️  Switched to safe branch: {fix_branch}")
+
+    # 4. START FIX ATTEMPT
+    branch_name = create_branch()
+    print(f"🛡️  Switched to safe branch: {branch_name}")
 
     try:
-        # Ask AI for solution
-        analysis = analyze_errors(errors, warnings, root_dir=str(test_dir))
+        # Ask AI for fixes
+        analysis = analyze_errors(errors, warnings, root_dir=str(root_dir))
         
-        if not analysis.get("fixes"):
+        fixes = analysis.get("fixes", [])
+        if not fixes:
             print("🤷 AI could not generate any fixes.")
-            revert_to_main(fix_branch, original_branch)
+            print("Start reverting to main...")
+            revert_changes(branch_name)
+            print(f"Reverted. Deleted branch {branch_name}.")
             return
 
-        print(f"🤖 AI Suggests {len(analysis['fixes'])} fixes...")
-
-        # Apply fixes
-        apply_fixes(analysis["fixes"], root_dir=str(test_dir))
+        print(f"🤖 AI Suggests {len(fixes)} fixes...")
         
-        # Commit the attempt (so we can revert cleanly if needed)
-        commit_change(".", message="AI: Attempted compile fix")
-
+        # Apply the fixes to the files
+        apply_fixes(fixes, root_dir=str(root_dir))
+        
         # 5. VERIFY
         print("🔄 Verifying fix...")
         success, new_logs = run_build(build_cmd)
 
         if success:
             print("🎉 SUCCESS! The build passed.")
-            # Delete the branch since we are done (or merge it)
-            # For now, let's keep it so you can see the victory
             print(f"✅ Code is fixed on branch: {branch_name}")
+            # Optional: commit_changes(branch_name, "AI Fix: Auto-corrected build errors")
             return
-
+        
         else:
-            # CHECK FOR PROGRESS
-            # If the original error is GONE, but new errors appeared, we made progress!
-            print("💥 Fix failed to cure the build.")
-            print("Build output after fix:")
+            # --- INTELLIGENT PARTIAL SUCCESS CHECK ---
+            print("💥 Fix failed to cure the entire build.")
             
-            # Print only the first few lines of the new log
-            print("\n".join(new_logs.splitlines()[:10]))
+            # Extract the specific error signature we tried to fix
+            # (e.g., "expected ';' before 'printf'")
+            old_error_sig = ""
+            if errors:
+                # Get the text after 'error:'
+                parts = errors[0].split("error:")
+                if len(parts) > 1:
+                    old_error_sig = parts[1].strip()
 
-            # --- NEW LOGIC: DETECT PROGRESS ---
-            # If the old error is gone, keep the change!
-            # We check if the specific error line we tried to fix is still in the logs
-            old_error_signature = error_lines[0].split("error:")[1].strip() if len(error_lines) > 0 else ""
+            # Check if that specific error is GONE from the new logs
+            if old_error_sig and old_error_sig not in new_logs:
+                print(f"\n🚀 PARTIAL SUCCESS! The specific error: '{old_error_sig[:40]}...' is GONE.")
+                print(f"⚠️  New errors may have appeared, but we will KEEP this fix.")
+                print(f"👉 You are still on branch: {branch_name}")
+                print("💡 TIP: Run the agent again to fix the remaining errors!")
+                return
             
-            if old_error_signature and old_error_signature not in new_logs:
-                 print(f"\n🚀 PARTIAL SUCCESS! The error '{old_error_signature[:30]}...' is gone.")
-                 print(f"⚠️ New errors appeared, but we will KEEP the current fix on branch {branch_name}.")
-                 print("You can run the agent again to fix the new errors.")
-                 return
-            # ----------------------------------
-
-            print("Start reverting to main...")
+            # If the exact same error is still there, then it failed.
+            print("❌ The fix didn't work. Reverting changes.")
+            print("--- New Logs Preview ---")
+            print("\n".join(new_logs.splitlines()[:5]))
+            
             revert_changes(branch_name)
             print(f"Reverted. Deleted branch {branch_name}.")
+
+    except Exception as e:
+        print(f"⚠️ Critical Error: {e}")
+        revert_changes(branch_name)
+        print(f"Reverted. Deleted branch {branch_name}.")
 
 if __name__ == "__main__":
     main()
