@@ -68,7 +68,7 @@ def main():
         return
 
     # 3. PARSE ERRORS
-    errors, warnings = parse_gcc_output(logs)
+    errors, warnings = extract_gcc_issues(logs)
     if not errors and not warnings:
         print("❓ Build failed but no specific GCC errors found.")
         print("--- RAW BUILD LOGS ---")
