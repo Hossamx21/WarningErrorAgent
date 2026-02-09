@@ -2,6 +2,7 @@ import requests
 import json
 import re
 import os
+import ast  #Using Python's own parser as a backup
 from agent.prompts import REASONING_PROMPT, JSON_CONVERSION_PROMPT
 from agent.context import get_code_snippet 
 
@@ -9,7 +10,6 @@ OLLAMA_URL = "http://localhost:11434/api/chat"
 MODEL = "phi3"
 
 def call_ollama(prompt: str, temp: float = 0.2) -> str:
-    """Helper to send requests to Ollama."""
     payload = {
         "model": MODEL,
         "messages": [{"role": "user", "content": prompt}],
@@ -17,7 +17,7 @@ def call_ollama(prompt: str, temp: float = 0.2) -> str:
         "options": {
             "temperature": temp, 
             "num_predict": 512,
-            "stop": ["User:", "System:"] # Removed ``` from stop tokens so we can catch markdown
+            "stop": ["User:", "System:"] 
         }
     }
     try:
@@ -30,37 +30,40 @@ def call_ollama(prompt: str, temp: float = 0.2) -> str:
 
 def extract_json(text: str) -> dict:
     """
-    Robust JSON extraction that handles Markdown blocks and messy text.
+    Robust extraction that handles messy AI output.
     """
+    # 1. Strip Markdown
+    match = re.search(r"(\{.*\})", text, re.DOTALL)
+    if match:
+        text = match.group(1)
+    
+    # 2. Attempt 1: Standard Strict JSON
     try:
-        # 1. Try to find content inside ```json ... ``` blocks first
-        code_block = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
-        if code_block:
-            text = code_block.group(1)
-        
-        # 2. If no block, just find the first '{' and the last '}'
-        else:
-            match_start = re.search(r"\{", text)
-            match_end = re.search(r"\}", text[::-1]) # Search from end
-            
-            if not match_start or not match_end:
-                return {}
-            
-            start = match_start.start()
-            end = len(text) - match_end.start()
-            text = text[start:end]
-
-        # 3. Decode
         return json.loads(text)
-    except Exception as e:
-        print(f"⚠️ JSON Parse Error: {e}")
-        return {}
+    except:
+        pass
+        
+    # 3. Attempt 2: Python Eval (Forgives single quotes, trailing commas)
+    try:
+        # This understands {'key': 'val',} which JSON hates
+        return ast.literal_eval(text)
+    except:
+        pass
+
+    # 4. Attempt 3: Aggressive Comma Repair (The most common error)
+    try:
+        # Regex: Find "string" followed by newline and "string", insert comma
+        text_fixed = re.sub(r'\"\s*\n\s*\"', '",\n"', text)
+        return json.loads(text_fixed)
+    except:
+        pass
+        
+    return {}
 
 def analyze_errors(error_lines: list[str], warning_lines: list[str] = None, root_dir: str = ".") -> dict:
-    # 1. Select the first error to fix
     target_error = error_lines[0]
     
-    # 2. Extract the REAL filename from the error message immediately
+    # Extract filename from error log
     file_match = re.search(r"([^:\s]+):(\d+):", target_error)
     real_filename = file_match.group(1) if file_match else ""
     
@@ -79,32 +82,19 @@ def analyze_errors(error_lines: list[str], warning_lines: list[str] = None, root
     
     # --- PHASE 2: JSON CONVERSION ---
     json_input = f"{JSON_CONVERSION_PROMPT}\n\nCONTEXT:\n{snippet}\n\nPROPOSED FIX:\n{reasoning_output}"
-    json_output = call_ollama(json_input, temp=0.1)
+    # Use 0.0 temperature for maximum strictness
+    json_output = call_ollama(json_input, temp=0.0)
     
-    # Debug: Print what the model actually gave us
-    # print(f"DEBUG RAW JSON: {json_output}")
-
     result = extract_json(json_output)
     
-    # --- RETRY LOGIC ---
-    # If extraction failed, try one more time asking nicely
-    if not result:
-        print("⚠️  Invalid JSON received. Retrying conversion step...")
-        retry_input = json_input + "\n\nIMPORTANT: Your previous output was invalid. Output ONLY the raw JSON object. No text."
-        json_output = call_ollama(retry_input, temp=0.1)
-        result = extract_json(json_output)
-
     fixes = []
-    if "fixes" in result:
+    if result and "fixes" in result:
         fixes = result["fixes"]
         
-        # --- CRITICAL FIX: OVERWRITE FILENAME ---
+        # Override filename to be safe
         if real_filename:
             for fix in fixes:
-                # Use os.path.normpath to fix mix of / and \
                 fix["file"] = os.path.normpath(real_filename)
-                
-                # Cleanup: Ensure we don't accidentally escape backslashes twice
                 if "\\" in fix["original_code"]:
                     fix["original_code"] = fix["original_code"].replace("\\", "")
 
