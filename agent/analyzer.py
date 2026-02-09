@@ -1,6 +1,7 @@
 import requests
 import json
 import re
+import os
 from agent.prompts import REASONING_PROMPT, JSON_CONVERSION_PROMPT
 from agent.context import get_code_snippet 
 
@@ -15,7 +16,7 @@ def call_ollama(prompt: str, temp: float = 0.2) -> str:
         "stream": False,
         "options": {
             "temperature": temp, 
-            "num_predict": 512, # Keep it short
+            "num_predict": 512,
             "stop": ["```\n\n", "User:", "System:"]
         }
     }
@@ -39,11 +40,14 @@ def extract_json(text: str) -> dict:
         return {}
 
 def analyze_errors(error_lines: list[str], warning_lines: list[str] = None, root_dir: str = ".") -> dict:
-    fixes = []
-    
-    # Process only the FIRST error to ensure success (One-at-a-time strategy)
-    # Once this works, we can loop through more.
+    # 1. Select the first error to fix
     target_error = error_lines[0]
+    
+    # 2. Extract the REAL filename from the error message immediately
+    # Pattern looks for "path/to/file.c:10:..."
+    file_match = re.search(r"([^:\s]+):(\d+):", target_error)
+    real_filename = file_match.group(1) if file_match else ""
+    
     snippet = get_code_snippet(target_error, root_dir)
     
     print(f"🕵️  Step 1: Reasoning about: {target_error}")
@@ -59,18 +63,24 @@ def analyze_errors(error_lines: list[str], warning_lines: list[str] = None, root
     
     # --- PHASE 2: JSON CONVERSION ---
     json_input = f"{JSON_CONVERSION_PROMPT}\n\nCONTEXT:\n{snippet}\n\nPROPOSED FIX:\n{reasoning_output}"
-    json_output = call_ollama(json_input, temp=0.1) # Low temp for strict format
+    json_output = call_ollama(json_input, temp=0.1)
     
-    # Save debug logs
-    with open("logs/debug_reasoning.txt", "w", encoding="utf-8") as f:
-        f.write(reasoning_output)
-    with open("logs/debug_json.txt", "w", encoding="utf-8") as f:
-        f.write(json_output)
-
     result = extract_json(json_output)
     
-    # If the model returned a list of fixes wrapped in a dict
+    fixes = []
     if "fixes" in result:
         fixes = result["fixes"]
-    
+        
+        # --- CRITICAL FIX: OVERWRITE FILENAME ---
+        # The AI often hallucinates "filename.c". We force the real filename here.
+        if real_filename:
+            for fix in fixes:
+                # Use absolute path from error log, or relative if needed.
+                # Since fixer.py uses os.path.join, passing the full path usually works fine on Windows.
+                fix["file"] = real_filename
+                
+                # Cleanup: Ensure we don't accidentally escape backslashes twice
+                if "\\" in fix["original_code"]:
+                    fix["original_code"] = fix["original_code"].replace("\\", "")
+
     return {"fixes": fixes, "reasoning": reasoning_output}
