@@ -27,7 +27,7 @@ def extract_json(text: str) -> dict:
 
 def analyze_errors(error_lines: list[str], warning_lines: list[str] = None, root_dir: str = ".") -> dict:
     # 1. LIMIT CONTEXT (Prevent freezing on large logs)
-    MAX_ISSUES = 5
+    MAX_ISSUES = 2
     
     prompt = ANALYSIS_PROMPT + "\n\n### Build Issues with Context:\n"
     
@@ -60,7 +60,7 @@ def analyze_errors(error_lines: list[str], warning_lines: list[str] = None, root
     
     try:
         # 4. TIMEOUT (Prevents hanging forever)
-        resp = requests.post(OLLAMA_URL, json=payload, timeout=120)
+        resp = requests.post(OLLAMA_URL, json=payload, timeout=600)
         resp.raise_for_status()
         
         raw_output = resp.json()["message"]["content"]
