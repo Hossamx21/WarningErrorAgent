@@ -2,7 +2,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from agent.gcc import parse_gcc_output
+from parsers.gcc import extract_gcc_issues
 from agent.git_utils import is_clean_workspace, create_branch, revert_changes, commit_changes
 from agent.analyzer import analyze_errors
 from agent.fixer import apply_fixes

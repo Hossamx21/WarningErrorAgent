@@ -1,36 +1,52 @@
 import subprocess
 import uuid
-import sys
 
-def run_git_cmd(args: list[str], check: bool = True) -> bool:
-    """Helper to run git commands cleanly."""
+def run_git(args: list[str]) -> tuple[bool, str]:
+    """Helper to run git commands."""
     try:
-        subprocess.run(["git"] + args, check=check, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        return True
-    except subprocess.CalledProcessError:
-        return False
+        # We use check=False so we can handle errors manually
+        res = subprocess.run(
+            ["git"] + args,
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        return (res.returncode == 0, res.stdout.strip())
+    except Exception as e:
+        return (False, str(e))
 
 def is_clean_workspace() -> bool:
-    """Returns True if there are no uncommitted changes."""
-    # --porcelain gives machine-readable output. Empty means clean.
-    res = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
-    return not res.stdout.strip()
+    """Returns True if there are no IMPORTANT uncommitted changes."""
+    success, output = run_git(["status", "--porcelain"])
+    
+    if not output:
+        return True # Completely clean
+        
+    # Filter out lines that are just pycache or logs to be annoying
+    lines = output.splitlines()
+    for line in lines:
+        # If the change is NOT in pycache or logs, then it's a real dirty state
+        if "__pycache__" not in line and "logs/" not in line and ".pyc" not in line:
+            print(f"⚠️  Uncommitted change detected: {line}")
+            return False
+            
+    return True
 
-def create_fix_branch() -> str:
-    """Creates a unique temporary branch for this fix attempt."""
+def create_branch() -> str:
+    """Creates a new branch with a unique name."""
     branch_name = f"ai-fix-{uuid.uuid4().hex[:8]}"
-    if run_git_cmd(["checkout", "-b", branch_name]):
-        return branch_name
-    raise RuntimeError("Failed to create git branch")
+    run_git(["checkout", "-b", branch_name])
+    return branch_name
 
-def commit_change(file_path: str, message: str = "AI Auto-fix"):
-    """Saves a snapshot of the current state."""
-    run_git_cmd(["add", file_path])
-    run_git_cmd(["commit", "-m", message])
+def revert_changes(branch_name: str):
+    """Reverts changes by switching back to main and deleting the temp branch."""
+    # 1. Switch back to main (or master)
+    run_git(["checkout", "main"]) 
+    
+    # 2. Force delete the temporary branch
+    run_git(["branch", "-D", branch_name])
 
-def revert_to_main(temp_branch: str, original_branch: str = "main"):
-    """Nukes the experiment and goes back to safety."""
-    print(f"Start reverting to {original_branch}...")
-    run_git_cmd(["checkout", original_branch])
-    run_git_cmd(["branch", "-D", temp_branch])
-    print(f"Reverted. Deleted branch {temp_branch}.")
+def commit_changes(branch_name: str, message: str):
+    """Commits the changes on the current branch."""
+    run_git(["add", "."])
+    run_git(["commit", "-m", message])
