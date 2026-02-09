@@ -1,0 +1,12 @@
+# Ignore Python cache files
+__pycache__/
+*.pyc
+
+# Ignore build artifacts (we don't want to commit these)
+logs/
+output/
+testcode/test_app.exe
+testcode/test_app
+
+# Ignore system files
+.DS_Store
