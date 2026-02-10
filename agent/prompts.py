@@ -1,35 +1,32 @@
-# agent/prompts.py
-
 REASONING_PROMPT = """
-You are a C Programming Expert (Standard C99).
-Analyze the following Build Error and Source Code snippet.
+You are a C Programming Expert.
+Analyze the following Build Error and Source Code.
+Identify the specific line causing the error and determine the correct C syntax.
 
-RULES:
-1. This is strict C code. Do NOT use C++ headers like <cstdio> or <iostream>. Use <stdio.h>.
-2. Do NOT hallucinate code that isn't there. Only reference lines provided in the Context.
-3. If you need to ADD a missing library (like #include <stdio.h>), you must find an existing line (like another #include or the start of the file) and replace it with "Existing Line + New Line".
-
-Format your response as a logical explanation:
-1. PROBLEM: ...
-2. FIX: Replace "..." with "..."
+Format your response like this:
+1. LINE_CONTENT: (The exact content of the bad line)
+2. FIX_EXPLANATION: (Why it is wrong)
+3. CORRECTED_LINE: (The fixed line)
 """
 
 JSON_CONVERSION_PROMPT = """
-You are a Data Converter.
-Convert the following 'Fix Proposal' into strict JSON.
+You are a Code Formatting Engine.
+Convert the proposed fix into strict JSON.
 
 CRITICAL RULES:
-- 'original_code' must be an EXACT COPY of a line found in the Context.
-- To ADD a line, include the previous line in 'original_code' and append the new line in 'replacement_code'.
-- Output valid JSON only.
+1. 'original_code' must be the EXACT code string from the file.
+   - DO NOT include line numbers (e.g., "11:", "Line 10").
+   - DO NOT add comments that aren't in the source.
+2. 'replacement_code' must be the valid C code only.
+3. If adding a missing header, include the existing adjacent line in 'original_code' to anchor the replacement.
 
-Schema:
+Required JSON Structure:
 {
   "fixes": [
     {
       "file": "filename.c",
-      "original_code": "exact string from context",
-      "replacement_code": "corrected string"
+      "original_code": "int x = 50",
+      "replacement_code": "int x = 50;"
     }
   ]
 }

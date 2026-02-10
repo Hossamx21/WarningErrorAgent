@@ -29,53 +29,49 @@ def call_ollama(prompt: str, temp: float = 0.2) -> str:
         print(f"💥 Ollama Error: {e}")
         return ""
 
+def clean_code_string(code_str: str) -> str:
+    """
+    Removes hallucinated line numbers from AI output.
+    Example: '11: int x = 50' -> 'int x = 50'
+    """
+    # Remove leading line numbers (e.g., "  11 : ")
+    cleaned = re.sub(r'^\s*\d+\s*[:|]\s*', '', code_str, flags=re.MULTILINE)
+    return cleaned
+
 def extract_json(text: str) -> dict:
-    """
-    Robust extraction that handles messy AI output.
-    """
     print("\n--- [DEBUG] RAW AI OUTPUT START ---")
     print(text)
     print("--- [DEBUG] RAW AI OUTPUT END ---\n")
 
-    # 1. Clean up Markdown (```json ... ```)
+    # 1. Clean up Markdown
     match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
     if match:
         text = match.group(1)
     
-    # 2. Attempt 1: Standard JSON
+    # 2. Try Parsing
+    data = {}
     try:
-        return json.loads(text)
+        data = json.loads(text)
     except:
-        pass
-        
-    # 3. Attempt 2: Python Literal Eval (Handles single quotes)
-    try:
-        return ast.literal_eval(text)
-    except:
-        pass
-
-    # 4. Attempt 3: "Dirty" Extraction (Find the fixes list manually)
-    # Sometimes the model just outputs: "fixes": [ ... ] without the curly braces
-    try:
-        match = re.search(r'"fixes"\s*:\s*(\[.*\])', text, re.DOTALL)
-        if match:
-            list_text = match.group(1)
-            # Try to parse just the list
-            fixes_list = json.loads(list_text)
-            return {"fixes": fixes_list}
-    except:
-        pass
-        
-    return {}
+        try:
+            data = ast.literal_eval(text)
+        except:
+            # Last ditch: Find the fixes list regex
+            match = re.search(r'"fixes"\s*:\s*(\[.*\])', text, re.DOTALL)
+            if match:
+                try:
+                    data = {"fixes": json.loads(match.group(1))}
+                except:
+                    pass
+    return data
 
 def analyze_errors(error_lines: list[str], warning_lines: list[str] = None, root_dir: str = ".") -> dict:
-    # 1. Select the first error to fix
     if not error_lines:
-        return {"fixes": [], "reasoning": "No errors found"}
+        return {"fixes": [], "reasoning": "No errors"}
         
     target_error = error_lines[0]
     
-    # 2. Extract the REAL filename from the error message immediately
+    # Extract filename
     file_match = re.search(r"([^:\s]+):(\d+):", target_error)
     real_filename = file_match.group(1) if file_match else ""
     
@@ -94,7 +90,7 @@ def analyze_errors(error_lines: list[str], warning_lines: list[str] = None, root
     
     # --- PHASE 2: JSON CONVERSION ---
     json_input = f"{JSON_CONVERSION_PROMPT}\n\nCONTEXT:\n{snippet}\n\nPROPOSED FIX:\n{reasoning_output}"
-    json_output = call_ollama(json_input, temp=0.1)
+    json_output = call_ollama(json_input, temp=0.0)
     
     result = extract_json(json_output)
     
@@ -102,14 +98,16 @@ def analyze_errors(error_lines: list[str], warning_lines: list[str] = None, root
     if result and "fixes" in result:
         fixes = result["fixes"]
         
-        # --- CRITICAL FIX: OVERWRITE FILENAME ---
+        # --- CRITICAL FIXES ---
         if real_filename:
             for fix in fixes:
-                # Use os.path.normpath to fix mix of / and \
+                # 1. Fix Filename
                 fix["file"] = os.path.normpath(real_filename)
                 
-                # Cleanup: Ensure we don't accidentally escape backslashes twice
-                if "\\" in fix["original_code"]:
-                    fix["original_code"] = fix["original_code"].replace("\\", "")
+                # 2. Remove Hallucinated Line Numbers (The Magic Fix)
+                if "original_code" in fix:
+                    fix["original_code"] = clean_code_string(fix["original_code"])
+                if "replacement_code" in fix:
+                    fix["replacement_code"] = clean_code_string(fix["replacement_code"])
 
     return {"fixes": fixes, "reasoning": reasoning_output}
