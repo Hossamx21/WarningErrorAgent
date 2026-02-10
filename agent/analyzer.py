@@ -7,7 +7,7 @@ from agent.prompts import REASONING_PROMPT, JSON_CONVERSION_PROMPT
 from agent.context import get_code_snippet 
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
-MODEL = "phi3"
+MODEL = "qwen2.5-coder:7b"
 
 def call_ollama(prompt: str, temp: float = 0.2) -> str:
     """Helper to send requests to Ollama."""
