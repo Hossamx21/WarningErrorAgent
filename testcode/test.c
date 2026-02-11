@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <stdlib.h>
 
 int main() {
@@ -5,7 +6,7 @@ int main() {
     int unused_var = 100;
 
     // ERROR: Missing semicolon
-    int x = 50
+    int x = 50;
     
     // WARNING: Implicit declaration (printf requires stdio.h)
     printf("Result: %d\n", x);
