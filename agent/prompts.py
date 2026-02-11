@@ -1,32 +1,37 @@
 REASONING_PROMPT = """
 You are a C Programming Expert.
 Analyze the following Build Error and Source Code.
-Identify the specific line causing the error and determine the correct C syntax.
 
-Format your response like this:
-1. LINE_CONTENT: (The exact content of the bad line)
-2. FIX_EXPLANATION: (Why it is wrong)
-3. CORRECTED_LINE: (The fixed line)
+GOAL:
+1. Identify the missing syntax or library.
+2. If a library (like <stdio.h>) is missing, you MUST add it at the top of the file.
+3. If a syntax error exists, fix that specific line.
+
+Format your response as:
+1. PROBLEM: ...
+2. FIX_PLAN: ...
 """
 
 JSON_CONVERSION_PROMPT = """
-You are a Code Formatting Engine.
-Convert the proposed fix into strict JSON.
+You are a Strict Code Patcher.
+Convert the fix into JSON.
 
-CRITICAL RULES:
-1. 'original_code' must be the EXACT code string from the file.
-   - DO NOT include line numbers (e.g., "11:", "Line 10").
-   - DO NOT add comments that aren't in the source.
-2. 'replacement_code' must be the valid C code only.
-3. If adding a missing header, include the existing adjacent line in 'original_code' to anchor the replacement.
+RULES:
+1. 'original_code' must match the SOURCE exactly.
+   - DO NOT include comments that aren't in the file (e.g. do NOT add "// Error here").
+   - DO NOT include line numbers or "..." prefixes.
+2. To ADD a header:
+   - Find the FIRST line of the file in the context (e.g. "#include <stdlib.h>" or "int main()").
+   - Set that as 'original_code'.
+   - Set 'replacement_code' to "NEW_HEADER\nEXISTING_LINE".
 
-Required JSON Structure:
+Example (Adding Header):
 {
   "fixes": [
     {
-      "file": "filename.c",
-      "original_code": "int x = 50",
-      "replacement_code": "int x = 50;"
+      "file": "test.c",
+      "original_code": "#include <stdlib.h>",
+      "replacement_code": "#include <stdio.h>\n#include <stdlib.h>"
     }
   ]
 }
