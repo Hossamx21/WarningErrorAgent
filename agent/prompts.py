@@ -14,24 +14,22 @@ Format your response as:
 
 JSON_CONVERSION_PROMPT = """
 You are a Strict Code Patcher.
-Convert the fix into JSON.
+Convert the fix into valid JSON.
 
-RULES:
-1. 'original_code' must match the SOURCE exactly.
-   - DO NOT include comments that aren't in the file (e.g. do NOT add "// Error here").
-   - DO NOT include line numbers or "..." prefixes.
-2. To ADD a header:
-   - Find the FIRST line of the file in the context (e.g. "#include <stdlib.h>" or "int main()").
-   - Set that as 'original_code'.
-   - Set 'replacement_code' to "NEW_HEADER\nEXISTING_LINE".
+CRITICAL FORMATTING RULES:
+1. Use '\\n' for newlines. Do NOT use literal line breaks inside strings.
+2. 'original_code' must be COPIED EXACTLY from the source context.
+   - Do NOT add comments (e.g. "// Fix here").
+   - Do NOT include line numbers.
+3. If adding a header, use the first line of the file as 'original_code'.
 
-Example (Adding Header):
+Example Output:
 {
   "fixes": [
     {
       "file": "test.c",
       "original_code": "#include <stdlib.h>",
-      "replacement_code": "#include <stdio.h>\n#include <stdlib.h>"
+      "replacement_code": "#include <stdio.h>\\n#include <stdlib.h>"
     }
   ]
 }

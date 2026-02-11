@@ -7,10 +7,9 @@ from agent.prompts import REASONING_PROMPT, JSON_CONVERSION_PROMPT
 from agent.context import get_code_snippet 
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
-MODEL = "qwen2.5-coder:7b"
+MODEL = "qwen2.5-coder:7b" # Ensuring we use the good model
 
 def call_ollama(prompt: str, temp: float = 0.2) -> str:
-    """Helper to send requests to Ollama."""
     payload = {
         "model": MODEL,
         "messages": [{"role": "user", "content": prompt}],
@@ -30,13 +29,35 @@ def call_ollama(prompt: str, temp: float = 0.2) -> str:
         return ""
 
 def clean_code_string(code_str: str) -> str:
-    """
-    Removes hallucinated line numbers from AI output.
-    Example: '11: int x = 50' -> 'int x = 50'
-    """
-    # Remove leading line numbers (e.g., "  11 : ")
+    """Removes hallucinated line numbers."""
     cleaned = re.sub(r'^\s*\d+\s*[:|]\s*', '', code_str, flags=re.MULTILINE)
     return cleaned
+
+def repair_json_string(text: str) -> str:
+    """
+    Fixes common JSON errors from LLMs:
+    1. Escapes newlines inside string values.
+    2. Fixes trailing commas.
+    """
+    # Helper to escape newlines inside a specific matched group
+    def escape_newlines(m):
+        return m.group(0).replace('\n', '\\n').replace('\r', '')
+
+    # Regex: Find "key": "value" patterns where value might span lines
+    # We target specific keys to avoid breaking the structure
+    text = re.sub(
+        r'("original_code"\s*:\s*".*?")', 
+        escape_newlines, 
+        text, 
+        flags=re.DOTALL
+    )
+    text = re.sub(
+        r'("replacement_code"\s*:\s*".*?")', 
+        escape_newlines, 
+        text, 
+        flags=re.DOTALL
+    )
+    return text
 
 def extract_json(text: str) -> dict:
     print("\n--- [DEBUG] RAW AI OUTPUT START ---")
@@ -48,22 +69,18 @@ def extract_json(text: str) -> dict:
     if match:
         text = match.group(1)
     
-    # 2. Try Parsing
-    data = {}
+    # 2. PRE-PROCESS: Repair Newlines
+    text = repair_json_string(text)
+    
+    # 3. Try Parsing
     try:
-        data = json.loads(text)
+        return json.loads(text)
     except:
         try:
-            data = ast.literal_eval(text)
+            return ast.literal_eval(text)
         except:
-            # Last ditch: Find the fixes list regex
-            match = re.search(r'"fixes"\s*:\s*(\[.*\])', text, re.DOTALL)
-            if match:
-                try:
-                    data = {"fixes": json.loads(match.group(1))}
-                except:
-                    pass
-    return data
+            pass
+    return {}
 
 def analyze_errors(error_lines: list[str], warning_lines: list[str] = None, root_dir: str = ".") -> dict:
     if not error_lines:
@@ -101,10 +118,9 @@ def analyze_errors(error_lines: list[str], warning_lines: list[str] = None, root
         # --- CRITICAL FIXES ---
         if real_filename:
             for fix in fixes:
-                # 1. Fix Filename
                 fix["file"] = os.path.normpath(real_filename)
                 
-                # 2. Remove Hallucinated Line Numbers (The Magic Fix)
+                # Run the cleaners
                 if "original_code" in fix:
                     fix["original_code"] = clean_code_string(fix["original_code"])
                 if "replacement_code" in fix:
