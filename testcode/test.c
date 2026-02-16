@@ -2,14 +2,15 @@
 #include <stdlib.h>
 
 int main() {
-    // WARNING: Unused variable
-    int unused_var = 100;
-
-    // ERROR: Missing semicolon
     int x = 50;
-    
-    // WARNING: Implicit declaration (printf requires stdio.h)
     printf("Result: %d\n", x);
+    
+    // --- THE TRAP ---
+    // We call this function, but we haven't included "math_utils.h"
+    // The agent must search the DB to find where "add_numbers" is defined.
+    int sum = add_numbers(10, 20); 
+    printf("Sum: %d\n", sum);
+    // ----------------
 
     return 0;
 }
