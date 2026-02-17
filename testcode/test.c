@@ -8,7 +8,9 @@ int main() {
     // --- THE TRAP ---
     // We call this function, but we haven't included "math_utils.h"
     // The agent must search the DB to find where "add_numbers" is defined.
-    int sum = add_numbers(10, 20); 
+    #include "math_utils.h"
+
+int sum = add_numbers(10, 20); 
     printf("Sum: %d\n", sum);
     // ----------------
 
