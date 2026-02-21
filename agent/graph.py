@@ -87,12 +87,14 @@ workflow.set_entry_point("setup")
 workflow.add_edge("setup", "build")
 
 # Build -> Decision (End or Fix?)
+# Verify -> Decision (Keep or Revert or Loop?)
 workflow.add_conditional_edges(
-    "build",
-    check_initial_build,
+    "verify",
+    check_verification,
     {
         "end": END,
-        "get_context": "get_context"
+        "revert": "revert",
+        "get_context": "get_context"  # <--- CRITICAL FIX: Add this line!
     }
 )
 
