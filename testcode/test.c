@@ -1,6 +1,5 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include "math_utils.h"
 
 // WARNING 1: Unused parameter
 // We pass 'config_id' into the function, but never actually use it inside.
