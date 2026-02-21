@@ -13,7 +13,7 @@ int main() {
     int diagnostic_code = 0xFF; 
 
     int x = 50;
-    int sum = add_numbers(10, x);
+    int sum = x+10;
     
     init_sensor(1);
     printf("System ready. Sum: %d\n", sum);
