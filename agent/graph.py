@@ -110,6 +110,7 @@ workflow.add_conditional_edges(
     {
         "end": END,
         "revert": "revert"
+        "get_context": "get_context"  # <--- CRITICAL FIX: Add this line!
     }
 )
 
