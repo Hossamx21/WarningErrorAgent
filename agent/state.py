@@ -16,6 +16,9 @@ class AgentState(TypedDict):
     code_context: str
     proposed_fixes: List[Dict[str, Any]] # Will hold our JSON fixes
     reasoning: str
+    current_issue: str #to identify error or warning we are targeting
     
     # Loop control
     retry_count: int
+
+    

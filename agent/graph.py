@@ -12,16 +12,19 @@ from agent.nodes import (
 
 # --- ROUTING LOGIC ---
 def check_initial_build(state: AgentState):
-    """
-    Decides if we need to start fixing.
-    """
-    if state.get("build_success"):
-        print("✅ Build passed immediately. No fixes needed.")
-        return "end"
-    else:
-        # We save the 'target error' to the state so we can compare later
-        # (In a real app, we'd add a 'target_error' field to AgentState)
+    # LINE 1: Calculate if the 'error_lines' list has any items in it.
+    has_errors = len(state.get("error_lines", [])) > 0
+    
+    # LINE 2: Calculate if the 'warning_lines' list has any items in it.
+    has_warnings = len(state.get("warning_lines", [])) > 0
+    
+    # LINE 3 & 4: If either errors OR warnings exist, we route to "get_context" to start fixing.
+    if has_errors or has_warnings:
         return "get_context"
+        
+    # LINE 5 & 6: Only if both lists are completely empty do we end the program.
+    print("✅ Build passed with ZERO warnings. Code is perfect.")
+    return "end"
 
 def check_verification(state: AgentState):
     """

@@ -61,56 +61,71 @@ def run_build_node(state: AgentState) -> Dict[str, Any]:
 
 # --- NODE 4: GATHER CONTEXT ---
 def get_context_node(state: AgentState) -> Dict[str, Any]:
-    if not state["error_lines"]:
-        return {"code_context": ""}
+    # LINE 1 & 2: Pull the lists of errors and warnings from the global state.
+    errors = state.get("error_lines", [])
+    warnings = state.get("warning_lines", [])
 
-    target_error = state["error_lines"][0]
-    print(f"🕵️  Reasoning about: {target_error}")
+    # LINE 3 to 10: The Priority Logic.
+    if errors:
+        # If there are errors, set 'target_issue' to the first error.
+        target_issue = errors[0]
+        issue_type = "ERROR"
+    elif warnings:
+        # If there are NO errors, but there ARE warnings, set it to the first warning.
+        target_issue = warnings[0]
+        issue_type = "WARNING"
+    else:
+        # Failsafe: return empty if nothing is wrong.
+        return {"code_context": "", "current_issue": ""}
+
+    print(f"🕵️  Reasoning about {issue_type}: {target_issue}")
     
-    local_context = get_code_snippet(target_error, str(Path.cwd()))
+    # LINE 11: Pass the selected 'target_issue' string to your file scraper.
+    local_context = get_code_snippet(target_issue, str(Path.cwd()))
     
+    # LINE 12 to 20: Keep your existing RAG logic exactly the same.
     rag_context = ""
-    # Check for implicit declaration (missing header) or undefined reference (linker)
-    if "implicit declaration" in target_error or "undefined reference" in target_error:
-        print("🔎 Linker/Header error detected. Searching RAG database...")
-        
-        # Extract the function name (e.g. 'add_numbers')
-        # This is a simple split; regex would be safer but this works for now
-        parts = target_error.split("'")
-        if len(parts) > 1:
-            query = parts[1] # 'add_numbers'
+    if "implicit declaration" in target_issue or "undefined reference" in target_issue:
+        query = target_issue.split("'")[1] if "'" in target_issue else ""
+        if query:
             results = search_codebase(query, n_results=1)
-            
             if results:
-                rag_context = f"\n\n--- RAG SEARCH RESULT (Found in {results[0]['file']}) ---\n{results[0]['code']}\n"
-            else:
-                print("🤷 RAG found nothing relevant.")
+                rag_context = f"\n\n--- RAG SEARCH RESULT ---\n{results[0]['code']}\n"
 
+    # LINE 21: Combine the code snippets.
     full_context = local_context + rag_context
-    return {"code_context": full_context}
-
+    
+    # LINE 22 & 23: Return the updates to the state. 
+    # Notice we are now explicitly saving "current_issue" to the state!
+    return {
+        "code_context": full_context,
+        "current_issue": target_issue
+    }
 
 # --- NODE 5: GENERATE FIX (UPDATED!) ---
 def generate_fix_node(state: AgentState) -> Dict[str, Any]:
-    error_msg = state["error_lines"][0]
-    context = state["code_context"]
+    # LINE 1: Retrieve the exact issue (Error or Warning) we selected in the previous node.
+    issue_msg = state.get("current_issue", "")
+    
+    # LINE 2: Retrieve the code blocks (Local + RAG) we gathered.
+    context = state.get("code_context", "")
     
     print("🤖 AI is generating a fix...")
     try:
-        # --- THE FIX IS HERE ---
-        # We must pass format_instructions explicitly!
+        # LINE 3 to 7: Trigger the LangChain LLM pipeline. 
+        # We inject 'issue_msg' into the "error_msg" variable inside the prompt template.
         result = fix_chain.invoke({
-            "error_msg": error_msg,
+            "error_msg": issue_msg, 
             "code_context": context,
             "format_instructions": parser.get_format_instructions()
         })
         
+        # LINE 8 & 9: Extract the JSON list and update the state.
         fixes = result.get("fixes", [])
         return {"proposed_fixes": fixes}
     except Exception as e:
         print(f"💥 AI Generation Failed: {e}")
         return {"proposed_fixes": []}
-
 
 # --- NODE 6: APPLY FIX ---
 def apply_fix_node(state: AgentState) -> Dict[str, Any]:
