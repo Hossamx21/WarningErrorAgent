@@ -28,29 +28,45 @@ def check_initial_build(state: AgentState):
 
 def check_verification(state: AgentState):
     """
-    Decides if the fix was good, partial, or bad.
+    Decides if the fix was good, and if we should keep looping.
     """
-    if state.get("build_success"):
-        print("🎉 Fix Verification Passed!")
-        return "end"
     
-    # --- PARTIAL SUCCESS LOGIC ---
-    # We compare the NEW errors against the OLD target error.
-    # Note: Ideally we would store 'target_error' in state. 
-    # For now, we use a simple heuristic: Did the log change significantly?
+    # VARIABLES: has_errors, has_warnings
+    # RELATIONSHIP: Evaluates to True if the length of the lists in the state is greater than 0.
+    has_errors = len(state.get("error_lines", [])) > 0
+    has_warnings = len(state.get("warning_lines", [])) > 0
     
-    print("⚠️ Build still failing. Checking for partial progress...")
-    # In a full production graph, we would have saved the specific error ID.
-    # Here, we will assume if the agent applied a fix, we keep it 
-    # unless it caused a catastrophic failure (like 100 new errors).
-    
+    # 1. THE PERFECT EXIT
+    # If both lists are completely empty, the build is flawless.
+    if not has_errors and not has_warnings:
+        print("🎉 Code is perfect! Zero Errors, Zero Warnings.")
+        return "end" # Signals LangGraph to terminate the execution.
+        
+    # 2. THE INFINITE LOOP BREAKER
+    # VARIABLE: state.get("retry_count")
+    # RELATIONSHIP: Reads the counter we incremented in 'get_context_node'.
+    # If the AI has tried and failed 4 times, we force a stop to prevent an infinite loop.
+    if state.get("retry_count", 0) >= 4:
+        print("🛑 Reached maximum AI retries (4). Stopping to prevent infinite loop.")
+        return "end" 
+        
+    # 3. THE CONTINUOUS LOOP
+    # VARIABLE: current_errors
+    # RELATIONSHIP: Checks the raw count of errors.
     current_errors = len(state.get("error_lines", []))
-    # Heuristic: If we have fewer than 20 errors, it's likely progress or a shift.
-    # If we have 100+, we probably broke a header file.
-    if current_errors < 20:
-         print("🚀 PARTIAL SUCCESS detected. Keeping changes.")
-         return "end"
     
+    # If the build failed, but it didn't completely explode (less than 20 errors),
+    # we assume the AI is making progress or still has warnings to fix.
+    if current_errors < 20:
+         print("🔄 Issue addressed, but compiler is still complaining. Looping back to Agent...")
+         
+         # Returning "get_context" tells LangGraph to draw an edge back to the start
+         # of the AI processing pipeline, feeding the NEW warnings/errors back into the loop.
+         return "get_context"
+    
+    # 4. THE CATASTROPHIC FAILURE
+    # If the error count is 20+, the AI likely broke a core header file. 
+    # We trigger the revert node to undo the Git commit.
     return "revert"
 
 # --- BUILD THE GRAPH ---
