@@ -109,7 +109,7 @@ workflow.add_conditional_edges(
     check_verification,
     {
         "end": END,
-        "revert": "revert"
+        "revert": "revert",
         "get_context": "get_context"  # <--- CRITICAL FIX: Add this line!
     }
 )
