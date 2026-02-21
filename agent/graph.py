@@ -103,17 +103,6 @@ workflow.add_edge("get_context", "generate")
 workflow.add_edge("generate", "apply")
 workflow.add_edge("apply", "verify")
 
-# Verify -> Decision (Keep or Revert?)
-workflow.add_conditional_edges(
-    "verify",
-    check_verification,
-    {
-        "end": END,
-        "revert": "revert",
-        "get_context": "get_context"  # <--- CRITICAL FIX: Add this line!
-    }
-)
-
 # Revert -> End
 workflow.add_edge("revert", END)
 
