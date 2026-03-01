@@ -9,7 +9,7 @@ void init_sensor(int config_id) {
 
 int main() {
     // WARNING 2: Unused variable
-    int diagnostic_code = 0xFF; 
+    // int diagnostic_code = 0xFF; 
 
     int x = 50;
     int sum = add_numbers(10, x);
